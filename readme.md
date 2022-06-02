@@ -31,7 +31,7 @@ Please note that all the features described above are dynamic. This means that t
 
 ## The heuristics
 
-There are four heuristics already defined within FFPHHS:
+There are two heuristics already defined within FFPHHS:
 
 - **LDEG**. This is the implementation of the local degree heuristic. This heuristic will protect first the unprotected node at risk (connected directly to a burning node) with the largest degree.
 - **GDEG**. This is a generalization of the previous heuristic. The global degree heuristic first protects the unprotected node with the largest degree, even if it is not at risk when making the decision.
