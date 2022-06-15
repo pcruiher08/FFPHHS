@@ -1,6 +1,15 @@
+from pyexpat import features
 import random
 import math
-
+import os
+from turtle import shape
+from xml.sax.handler import property_interning_dict
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as pltcolors
+from sklearn import linear_model, svm, discriminant_analysis, metrics
+from scipy import optimize
+import seaborn as sns
 # Provides the methods to create and solve the firefighter problem
 class FFP:
 
@@ -13,6 +22,10 @@ class FFP:
     seed = int(tokens.pop(0))
     self.n = int(tokens.pop(0))
     model = int(tokens.pop(0))  
+    self.result = 0
+    self.featuresActualState = []
+    self.trainingFeatures = [] #X, features results
+    self.trainingClass = [] #Y, heuristic
     int(tokens.pop(0)) # Ignored
     # self.state contains the state of each node
     #    -1 On fire
@@ -42,6 +55,16 @@ class FFP:
       print("Initial state:" + str(self.state))    
     t = 0
     while (spreading):
+      #always in order/
+      # EDGE_DENSITY AVG_DEGREE BURNING_NODES BURNING_EDGES NODES_IN_DANGER
+      featuresList = []
+      featuresList.append(self.getFeature("EDGE_DENSITY"));
+      featuresList.append(self.getFeature("AVG_DEGREE"));
+      featuresList.append(self.getFeature("BURNING_NODES"));
+      featuresList.append(self.getFeature("BURNING_EDGES"));
+      featuresList.append(self.getFeature("NODES_IN_DANGER"));
+      self.featuresActualState = featuresList
+      self.trainingFeatures.append(featuresList)
       if (debug):
         print("Features")
         print("")
@@ -87,7 +110,28 @@ class FFP:
     if (debug):    
       print("Final state: " + str(self.state))
       print("Solution evaluation: " + str(self.getFeature("BURNING_NODES")))
-    return self.getFeature("BURNING_NODES")
+    print("how many steps", len(self.trainingFeatures))
+    self.trainingClass = [method]*len(self.trainingFeatures)
+    self.result = self.getFeature("BURNING_NODES")
+    
+  def retrieveFeaturesActualState(self):
+    return self.featuresActualState
+
+  def whatIsResult(self):
+    return self.result
+
+  def transformAndPrintTrainingX(self, flag = False):
+    self.trainingFeatures = np.array(self.trainingFeatures)
+    if(flag):
+      print(self.trainingFeatures)
+  
+  def transformAndPrintTrainingY(self, flag = False):
+    self.trainingClass = np.array(self.trainingClass)
+    if(flag):
+      print(self.trainingClass)
+  
+  def obtainTrainingData(self):
+    return self.trainingFeatures, self.trainingClass    
 
   # Selects the next node to protect by a firefighter
   #   heuristic = A string with the name of one available heuristic
@@ -181,6 +225,67 @@ class FFP:
           text += "\t" + str(i) + " - " + str(j) + "\n"
     return text
 
+class SVM:
+  def __init__(self):
+    print("initializing SVM")
+
+    self.colors = ['blue','red']
+    self.cmap = pltcolors.ListedColormap(self.colors)
+    self.nFeatures = 2
+    self.N = 100
+    self.model = svm.SVC(kernel='rbf', C = 10, gamma = 1/2, shrinking = False)
+
+  def train(self, X, Y):
+    XT = np.array(X)
+    YT = np.array(Y)
+    print("inside")
+    print(XT.shape)
+    print(YT.shape)
+    self.model.fit(XT,YT)
+
+  def predict(self, featuresToPredict):
+    return self.model.predict(featuresToPredict)
+  
+  def plotLine(self, ax, xRange, w, x0, label, color='grey', linestyle='-', alpha=1.):
+    """ Plot a (separating) line given the normal vector (weights) and point of intercept """
+    if type(x0) == int or type(x0) == float or type(x0) == np.float64:
+        x0 = [0, -x0 / w[1]]
+    yy = -(w[0] / w[1]) * (xRange - x0[0]) + x0[1]
+    ax.plot(xRange, yy, color=color, label=label, linestyle=linestyle)
+
+  def plotSVM(self, X, y, support=None, w=None, intercept=0., label='Data', separatorLabel='Separator', ax=None, bound=[[0., 1.], [0., 1.]]):
+    """ Plot the SVM separation, and margin """
+    if ax is None:
+        fig, ax = plt.subplots(1)
+    
+    im = ax.scatter(X[:,0], X[:,1], c=y, cmap=self.cmap, alpha=0.5, label=label)
+    if support is not None:
+        ax.scatter(support[:,0], support[:,1], label='Support', s=80, facecolors='none', 
+                   edgecolors='y', color='y')
+        print("Number of support vectors = %d" % (len(support)))
+    if w is not None:
+        xx = np.array(bound[0])
+        self.plotLine(ax, xx, w, intercept, separatorLabel)
+        # Plot margin
+        if support is not None:
+            signedDist = np.matmul(support, w)
+            margin = np.max(signedDist) - np.min(signedDist) * np.sqrt(np.dot(w, w))
+            supportMaxNeg = support[np.argmin(signedDist)]
+            self.plotLine(ax, xx, w, supportMaxNeg, 'Margin -', linestyle='-.', alpha=0.8)
+            supportMaxPos = support[np.argmax(signedDist)]
+            self.plotLine(ax, xx, w, supportMaxPos, 'Margin +', linestyle='--', alpha=0.8)
+            ax.set_title('Margin = %.3f' % (margin))
+    ax.legend(loc='upper left')
+    ax.grid()
+    ax.set_xlim(bound[0])
+    ax.set_ylim(bound[1])
+    cb = plt.colorbar(im, ax=ax)
+    loc = np.arange(-1,1,1)
+    cb.set_ticks(loc)
+    cb.set_ticklabels(['-1','1'])
+
+  
+
 # Provides the methods to create and use hyper-heuristics for the FFP
 # This is a class you must extend it to provide the actual implementation
 class HyperHeuristic:
@@ -237,7 +342,7 @@ class DummyHyperHeuristic(HyperHeuristic):
   # Constructor
   #   features = A list with the names of the features to be used by this hyper-heuristic
   #   heuristics = A list with the names of the heuristics to be used by this hyper-heuristic
-  #   nbRules = The number of rules to be contained in this hyper-heuristic  
+  #   nbRules = The number of rules to be contained in this hyper-heuristic
   def __init__(self, features, heuristics, nbRules, seed):
     super().__init__(features, heuristics)
     random.seed(seed)
@@ -282,22 +387,95 @@ class DummyHyperHeuristic(HyperHeuristic):
     distance = math.sqrt(distance)
     return distance
 
+
+# A dummy hyper-heuristic for testing purposes.
+# The hyper-heuristic creates a set of randomly initialized rules.
+# Then, when called, it measures the distance between the current state and the
+# conditions in the rules
+# The rule with the condition closest to the problem state is the one that fires
+class PabloHH(HyperHeuristic):
+
+  def __init__(self, features, heuristics, model):
+    super().__init__(features, heuristics)
+    self.model = model
+
+  def nextHeuristic(self, problem):
+    featuresInStep = np.array(problem.retrieveFeaturesActualState())
+    heuristic = self.model.predict([featuresInStep])
+    print(featuresInStep)
+    
+    print("\t\t=> " + str(heuristic) )
+    return heuristic
+
+  def __str__(self):
+    text = "Features:\n\t" + str(self.features) + "\nHeuristics:\n\t" + str(self.heuristics)
+    return text
+
 # Tests
 # =====================
 
-fileName = "instances/BBGRL/50_ep0.2_0_gilbert_1.in"
-# Solves the problem using heuristic LDEG and one firefighter
-problem = FFP(fileName)
-print("LDEG = " + str(problem.solve("LDEG", 1, False)))
+isTraining = True
+directory = 'instances/onlytests'
+# iterate over files in
+# that directory
 
-# Solves the problem using heuristic GDEG and one firefighter
-problem = FFP(fileName)
-print("GDEG = " + str(problem.solve("GDEG", 1, False)))
+
+trainingX = []
+trainingY = []
+
+for filename in os.listdir(directory):
+    f = os.path.join(directory, filename)
+    # checking if it is a file
+    if os.path.isfile(f):
+      print(f)
+      
+      # Solves the problem using heuristic LDEG and one firefighter
+      problem1 = FFP(f)
+      problem1.solve("LDEG", 1, False)
+      print("LDEG = " + str(problem1.whatIsResult()))
+
+      # Solves the problem using heuristic GDEG and one firefighter
+      problem2 = FFP(f)
+      problem2.solve("GDEG", 1, False)
+      print("GDEG = " + str(problem2.whatIsResult()))
+
+      trainingXAux = []
+      trainingYAux = []
+      if(isTraining):
+        if(problem1.whatIsResult() <= problem2.whatIsResult()):
+          problem1.transformAndPrintTrainingX(0)
+          problem1.transformAndPrintTrainingY(0)
+          trainingXAux, trainingYAux = problem1.obtainTrainingData()
+        else:
+          problem2.transformAndPrintTrainingX(0)
+          problem2.transformAndPrintTrainingY(0)
+          trainingXAux, trainingYAux = problem2.obtainTrainingData()
+
+        trainingX.extend(trainingXAux)
+        trainingY.extend(trainingYAux)
+        print(trainingX)
+        print(trainingY)
+
+supportVectorMachine = SVM()
+
+if(isTraining):
+
+  #train
+  supportVectorMachine.train(trainingX, trainingY)
+
+  #dump into Pickle
+  print("trained")
+else:
+  #test with HH
+  print()
+
 
 # Solves the problem using a randomly generated dummy hyper-heuristic
-problem = FFP(fileName)
-seed = random.randint(0, 1000)
-print(seed)
-hh = DummyHyperHeuristic(["EDGE_DENSITY", "BURNING_NODES", "NODES_IN_DANGER"], ["LDEG", "GDEG"], 2, seed)
+problem3 = FFP(f)
+hh = PabloHH(["EDGE_DENSITY", "BURNING_NODES", "NODES_IN_DANGER", "BURNING_EDGES", "AVG_DEGREE"], ["LDEG", "GDEG"], supportVectorMachine)
 print(hh)
-print("Dummy HH = " + str(problem.solve(hh, 1, False)))
+problem3 = FFP(f)
+problem3.solve(hh,1,True)
+
+print("PabloHH = " + str(problem3.whatIsResult()))
+
